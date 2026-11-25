@@ -16,6 +16,7 @@
       --accent-hover: #2f28b8;
       --accent-soft: #ebeaff;
       --success: #0d7a4f;
+      --success-hover: #0a633f;
       --success-soft: #e6f6ee;
       --danger: #c43131;
       --danger-soft: #fdecec;
@@ -117,8 +118,8 @@
     .btn {
       border: 0;
       border-radius: 11px;
-      padding: 12px 20px;
-      font-size: 0.95rem;
+      padding: 11px 18px;
+      font-size: 0.93rem;
       font-weight: 650;
       cursor: pointer;
       display: inline-flex;
@@ -139,11 +140,18 @@
     }
     .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 
+    .btn-accent-soft {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid #d4d1fb;
+    }
+    .btn-accent-soft:hover:not(:disabled) { background: #dedbff; }
+
     .btn-success {
       background: var(--success);
       color: #fff;
     }
-    .btn-success:hover:not(:disabled) { background: #0a633f; }
+    .btn-success:hover:not(:disabled) { background: var(--success-hover); }
 
     .btn-ghost {
       background: var(--surface-muted);
@@ -224,7 +232,6 @@
       font-weight: 500;
     }
 
-    /* Progress card */
     .progress-layout {
       display: grid;
       grid-template-columns: 1fr 220px;
@@ -244,10 +251,7 @@
       margin-bottom: 8px;
     }
 
-    .progress-title {
-      font-weight: 700;
-      font-size: 1rem;
-    }
+    .progress-title { font-weight: 700; font-size: 1rem; }
 
     .progress-pct {
       font-weight: 700;
@@ -298,10 +302,9 @@
       display: block;
     }
 
-    /* Viewer card */
     .viewer-header {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
       gap: 14px;
       flex-wrap: wrap;
@@ -330,15 +333,23 @@
       color: var(--ink-muted);
     }
 
-    .badge.ok {
-      background: var(--success-soft);
-      color: var(--success);
-    }
+    .badge.ok { background: var(--success-soft); color: var(--success); }
+    .badge.inter { background: var(--accent-soft); color: var(--accent); }
 
     .viewer-actions {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
+    }
+
+    .ai-tip {
+      background: #f5f4ff;
+      border: 1px solid #dcd9fc;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      font-size: 0.86rem;
+      color: #2c276e;
     }
 
     .pdf-frame-wrap {
@@ -358,17 +369,13 @@
       display: block;
     }
 
-    /* History */
     .history-title {
       margin: 0 0 12px;
       font-size: 1rem;
       font-weight: 700;
     }
 
-    .history-list {
-      display: grid;
-      gap: 10px;
-    }
+    .history-list { display: grid; gap: 10px; }
 
     .history-item {
       display: flex;
@@ -382,20 +389,9 @@
       flex-wrap: wrap;
     }
 
-    .history-info {
-      min-width: 220px;
-      flex: 1;
-    }
-
-    .history-name {
-      font-weight: 650;
-      font-size: 0.94rem;
-    }
-
-    .history-sub {
-      font-size: 0.82rem;
-      color: var(--ink-muted);
-    }
+    .history-info { min-width: 220px; flex: 1; }
+    .history-name { font-weight: 650; font-size: 0.94rem; }
+    .history-sub { font-size: 0.82rem; color: var(--ink-muted); }
 
     .history-btns {
       display: flex;
@@ -405,7 +401,7 @@
 
     .btn-sm {
       padding: 7px 12px;
-      font-size: 0.84rem;
+      font-size: 0.83rem;
       border-radius: 8px;
     }
   </style>
@@ -417,7 +413,7 @@
         <div class="logo">G→P</div>
         <div>
           <h1>Genially a PDF</h1>
-          <p class="subtitle">Convierte presentaciones públicas de Genially en un PDF limpio, visible y descargable.</p>
+          <p class="subtitle">Convierte presentaciones de Genially en PDF completo (con tooltips, elementos ocultos y contexto para IA).</p>
         </div>
       </div>
     </header>
@@ -446,6 +442,10 @@
                 <option value="1">Rápida (1× liviana)</option>
                 <option value="3">Ultra (3× máxima)</option>
               </select>
+            </label>
+            <label class="inline">
+              <input id="interactive-checkbox" type="checkbox" checked />
+              Incluir contenido interactivo (tooltips y ocultos)
             </label>
             <label class="inline">
               <input id="searchable-checkbox" type="checkbox" checked />
@@ -490,6 +490,12 @@
           <div class="badges" id="viewer-badges"></div>
         </div>
         <div class="viewer-actions">
+          <button id="copy-ai-btn" class="btn btn-accent-soft hidden" type="button">
+            Copiar contexto para IA
+          </button>
+          <a id="download-md-btn" class="btn btn-ghost hidden" href="#" download>
+            Descargar .md
+          </a>
           <a id="open-tab-btn" class="btn btn-ghost" href="#" target="_blank" rel="noopener">
             Abrir en pestaña
           </a>
@@ -498,13 +504,16 @@
           </a>
         </div>
       </div>
+      <div id="ai-tip" class="ai-tip hidden">
+        <strong>Tip para usar con tu IA:</strong> sube el <strong>PDF</strong> (para que vea los diagramas y el estilo visual de tu profesora) junto con el archivo <strong>.md</strong> o usando <strong>"Copiar contexto para IA"</strong> (trae todas las definiciones, notas interactivas y elementos ocultos estructurados por diapositiva).
+      </div>
       <div class="pdf-frame-wrap">
         <iframe id="pdf-frame" class="pdf-frame" title="Visor de PDF"></iframe>
       </div>
     </section>
 
     <section id="history-card" class="card hidden">
-      <h3 class="history-title">PDFs convertidos recientemente (guardados en <code>output/</code>)</h3>
+      <h3 class="history-title">Clases convertidas recientemente (guardadas en <code>output/</code>)</h3>
       <div id="history-list" class="history-list"></div>
     </section>
   </div>
@@ -515,6 +524,7 @@
     const urlInput = document.getElementById("url-input");
     const submitBtn = document.getElementById("submit-btn");
     const qualitySelect = document.getElementById("quality-select");
+    const interactiveCheckbox = document.getElementById("interactive-checkbox");
     const searchableCheckbox = document.getElementById("searchable-checkbox");
     const exampleBtn = document.getElementById("example-btn");
     const errorBox = document.getElementById("error-box");
@@ -531,8 +541,11 @@
     const viewerCard = document.getElementById("viewer-card");
     const viewerTitle = document.getElementById("viewer-title");
     const viewerBadges = document.getElementById("viewer-badges");
+    const copyAiBtn = document.getElementById("copy-ai-btn");
+    const downloadMdBtn = document.getElementById("download-md-btn");
     const openTabBtn = document.getElementById("open-tab-btn");
     const downloadBtn = document.getElementById("download-btn");
+    const aiTip = document.getElementById("ai-tip");
     const pdfFrame = document.getElementById("pdf-frame");
 
     const historyCard = document.getElementById("history-card");
@@ -541,6 +554,8 @@
     let activeEventSource = null;
     let activeJobId = null;
     let lastThumbVersion = 0;
+    let currentMarkdownUrl = null;
+    let currentTitle = "";
 
     function formatBytes(bytes) {
       if (!bytes) return "0 KB";
@@ -564,19 +579,49 @@
       submitBtn.textContent = busy ? "Convirtiendo..." : "Convertir a PDF";
     }
 
+    async function copyContextForAi(markdownUrl, title, btnEl) {
+      try {
+        const res = await fetch(markdownUrl);
+        if (!res.ok) throw new Error("No se pudo cargar el resumen Markdown.");
+        const md = await res.text();
+        const promptPrefix =
+          `Te comparto el material de la clase "${title}" (adjunto también el PDF para que observes exactamente los diagramas y convenciones visuales de mi profesora).\n` +
+          `Respeta su notación, terminología, estructura de diagramas y reglas mostradas en las diapositivas y notas interactivas:\n\n`;
+        await navigator.clipboard.writeText(promptPrefix + md);
+        const old = btnEl.textContent;
+        btnEl.textContent = "¡Copiado!";
+        setTimeout(() => { btnEl.textContent = old; }, 2200);
+      } catch (err) {
+        showError(err.message || "No se pudo copiar al portapapeles.");
+      }
+    }
+
     function showResult(result) {
-      viewerTitle.textContent = result.title || "Presentación PDF";
+      currentTitle = result.title || "Presentación PDF";
+      currentMarkdownUrl = result.markdown_url || null;
+      viewerTitle.textContent = currentTitle;
       viewerBadges.innerHTML = "";
+
+      const slidesTxt = result.slide_count
+        ? `${result.slide_count} diapositivas → ${result.page_count} págs. PDF`
+        : `${result.page_count} páginas PDF`;
       const items = [
-        { text: "PDF listo", ok: true },
-        { text: `${result.page_count} páginas` },
-        { text: formatBytes(result.size_bytes) },
-        { text: `${result.slide_width}×${result.slide_height}px` },
-        { text: `${result.duration_seconds}s` },
+        { text: "PDF listo", cls: "badge ok" },
+        { text: slidesTxt, cls: "badge" },
+        { text: formatBytes(result.size_bytes), cls: "badge" },
+        { text: `${result.slide_width}×${result.slide_height}px`, cls: "badge" },
+        { text: `${result.duration_seconds}s`, cls: "badge" },
       ];
+      if (result.interactive_count) {
+        items.push({ text: `${result.interactive_count} notas interactivas`, cls: "badge inter" });
+      }
+      if (result.revealed_count) {
+        items.push({ text: `${result.revealed_count} lámina(s) reveladas`, cls: "badge inter" });
+      }
+
       for (const item of items) {
         const span = document.createElement("span");
-        span.className = item.ok ? "badge ok" : "badge";
+        span.className = item.cls;
         span.textContent = item.text;
         viewerBadges.appendChild(span);
       }
@@ -586,9 +631,28 @@
       openTabBtn.href = inlineUrl;
       downloadBtn.href = result.download_url;
       downloadBtn.setAttribute("download", result.filename || "presentacion.pdf");
+
+      if (result.markdown_url && result.markdown_download_url) {
+        copyAiBtn.classList.remove("hidden");
+        downloadMdBtn.classList.remove("hidden");
+        aiTip.classList.remove("hidden");
+        downloadMdBtn.href = result.markdown_download_url;
+        downloadMdBtn.setAttribute("download", result.markdown_filename || "contexto_IA.md");
+      } else {
+        copyAiBtn.classList.add("hidden");
+        downloadMdBtn.classList.add("hidden");
+        aiTip.classList.add("hidden");
+      }
+
       viewerCard.classList.remove("hidden");
       viewerCard.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+
+    copyAiBtn.addEventListener("click", () => {
+      if (currentMarkdownUrl) {
+        copyContextForAi(currentMarkdownUrl, currentTitle, copyAiBtn);
+      }
+    });
 
     async function loadHistory() {
       try {
@@ -610,9 +674,13 @@
           const name = document.createElement("div");
           name.className = "history-name";
           name.textContent = item.title || item.filename;
+          const extra = [];
+          if (item.interactive_count) extra.push(`${item.interactive_count} notas`);
+          if (item.revealed_count) extra.push(`${item.revealed_count} reveladas`);
+          const extraTxt = extra.length ? ` · ${extra.join(", ")}` : "";
           const sub = document.createElement("div");
           sub.className = "history-sub";
-          sub.textContent = `${item.page_count} páginas · ${formatBytes(item.size_bytes)} · ${item.source_url}`;
+          sub.textContent = `${item.page_count} págs. PDF · ${formatBytes(item.size_bytes)}${extraTxt} · ${item.source_url}`;
           info.appendChild(name);
           info.appendChild(sub);
 
@@ -625,9 +693,27 @@
           viewBtn.textContent = "Ver PDF";
           viewBtn.onclick = () => showResult(item);
 
+          if (item.markdown_url) {
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "btn btn-accent-soft btn-sm";
+            copyBtn.textContent = "Copiar IA";
+            copyBtn.onclick = () => copyContextForAi(item.markdown_url, item.title || item.filename, copyBtn);
+            btns.appendChild(copyBtn);
+          }
+
+          if (item.markdown_download_url) {
+            const mdLink = document.createElement("a");
+            mdLink.className = "btn btn-ghost btn-sm";
+            mdLink.textContent = ".md";
+            mdLink.href = item.markdown_download_url;
+            mdLink.setAttribute("download", item.markdown_filename || "contexto_IA.md");
+            btns.appendChild(mdLink);
+          }
+
           const dlLink = document.createElement("a");
           dlLink.className = "btn btn-success btn-sm";
-          dlLink.textContent = "Descargar";
+          dlLink.textContent = "Descargar PDF";
           dlLink.href = item.download_url;
           dlLink.setAttribute("download", item.filename || "presentacion.pdf");
 
@@ -715,6 +801,7 @@
             url,
             scale_factor: parseInt(qualitySelect.value, 10) || 2,
             searchable_text: searchableCheckbox.checked,
+            include_interactive: interactiveCheckbox.checked,
           }),
         });
 
@@ -752,7 +839,6 @@
 
         activeEventSource.onerror = async () => {
           stopStream();
-          // Respaldo: verificar estado final si se cortó SSE
           try {
             const check = await fetch(`/api/jobs/${activeJobId}`);
             if (check.ok) {

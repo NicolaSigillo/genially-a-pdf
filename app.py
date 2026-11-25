@@ -19,7 +19,7 @@ from urllib.parse import quote
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from converter import ConversionProgress, ConversionResult, convert_genially_to_pdf, validate_genially_url
@@ -34,20 +34,21 @@ STATIC_DIR = BASE_DIR / "static"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="Genially a PDF", version="1.0.0")
+app = FastAPI(title="Genially a PDF", version="1.1.0")
 
 
 class ConvertRequest(BaseModel):
     url: str
     scale_factor: int = 2
     searchable_text: bool = True
+    include_interactive: bool = True
 
 
 @dataclass
 class JobState:
     job_id: str
     url: str
-    status: str = "queued"  # queued, running, done, error, cancelled
+    status: str = "queued"
     stage: str = "queued"
     message: str = "En cola..."
     current_slide: int = 0
@@ -84,7 +85,12 @@ def _save_history_entry(job_id: str, res: ConversionResult) -> dict:
         "title": res.title,
         "filename": res.filename,
         "stored_name": res.pdf_path.name,
+        "markdown_filename": res.markdown_filename,
+        "markdown_stored_name": res.markdown_path.name,
+        "slide_count": res.slide_count,
         "page_count": res.page_count,
+        "interactive_count": res.interactive_count,
+        "revealed_count": res.revealed_count,
         "size_bytes": res.size_bytes,
         "duration_seconds": res.duration_seconds,
         "slide_width": res.slide_width,
@@ -99,7 +105,11 @@ def _save_history_entry(job_id: str, res: ConversionResult) -> dict:
                 items = json.loads(INDEX_FILE.read_text(encoding="utf-8"))
             except Exception:
                 items = []
-        items = [x for x in items if x.get("job_id") != job_id and (OUTPUT_DIR / x.get("stored_name", "")).exists()]
+        items = [
+            x
+            for x in items
+            if x.get("job_id") != job_id and (OUTPUT_DIR / x.get("stored_name", "")).exists()
+        ]
         items.insert(0, entry)
         items = items[:25]
         INDEX_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -117,11 +127,23 @@ def _delete_history_entry(job_id: str) -> bool:
         removed = [x for x in items if x.get("job_id") == job_id]
         kept = [x for x in items if x.get("job_id") != job_id]
         for item in removed:
-            target = OUTPUT_DIR / item.get("stored_name", "")
-            if target.exists():
-                target.unlink(missing_ok=True)
+            for key in ("stored_name", "markdown_stored_name"):
+                fname = item.get(key, "")
+                if fname:
+                    (OUTPUT_DIR / fname).unlink(missing_ok=True)
         INDEX_FILE.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
         return len(removed) > 0
+
+
+def _result_urls(job_id: str, has_markdown: bool) -> dict:
+    urls = {
+        "pdf_url": f"/api/jobs/{job_id}/pdf",
+        "download_url": f"/api/jobs/{job_id}/pdf?download=1",
+    }
+    if has_markdown:
+        urls["markdown_url"] = f"/api/jobs/{job_id}/markdown"
+        urls["markdown_download_url"] = f"/api/jobs/{job_id}/markdown?download=1"
+    return urls
 
 
 def _job_to_dict(job: JobState) -> dict:
@@ -142,14 +164,17 @@ def _job_to_dict(job: JobState) -> dict:
         payload["result"] = {
             "title": job.result.title,
             "filename": job.result.filename,
+            "markdown_filename": job.result.markdown_filename,
+            "slide_count": job.result.slide_count,
             "page_count": job.result.page_count,
+            "interactive_count": job.result.interactive_count,
+            "revealed_count": job.result.revealed_count,
             "size_bytes": job.result.size_bytes,
             "duration_seconds": job.result.duration_seconds,
             "slide_width": job.result.slide_width,
             "slide_height": job.result.slide_height,
             "source_url": job.result.source_url,
-            "pdf_url": f"/api/jobs/{job.job_id}/pdf",
-            "download_url": f"/api/jobs/{job.job_id}/pdf?download=1",
+            **_result_urls(job.job_id, job.result.markdown_path.exists()),
         }
     return payload
 
@@ -163,7 +188,9 @@ def _notify_subscribers(job: JobState) -> None:
             pass
 
 
-async def _run_job(job: JobState, scale_factor: int, searchable_text: bool) -> None:
+async def _run_job(
+    job: JobState, scale_factor: int, searchable_text: bool, include_interactive: bool
+) -> None:
     job.status = "running"
     _notify_subscribers(job)
 
@@ -186,6 +213,7 @@ async def _run_job(job: JobState, scale_factor: int, searchable_text: bool) -> N
             OUTPUT_DIR,
             scale_factor=scale_factor,
             searchable_text=searchable_text,
+            include_interactive=include_interactive,
             on_progress=on_progress,
             cancel_event=job.cancel_event,
         )
@@ -231,7 +259,14 @@ async def start_conversion(req: ConvertRequest) -> dict:
     job = JobState(job_id=job_id, url=clean_url)
     JOBS[job_id] = job
     scale = 2 if req.scale_factor not in (1, 2, 3) else req.scale_factor
-    asyncio.create_task(_run_job(job, scale_factor=scale, searchable_text=req.searchable_text))
+    asyncio.create_task(
+        _run_job(
+            job,
+            scale_factor=scale,
+            searchable_text=req.searchable_text,
+            include_interactive=req.include_interactive,
+        )
+    )
     return _job_to_dict(job)
 
 
@@ -242,6 +277,10 @@ async def get_job(job_id: str) -> dict:
         return _job_to_dict(job)
     for item in _load_history():
         if item.get("job_id") == job_id:
+            has_md = bool(
+                item.get("markdown_stored_name")
+                and (OUTPUT_DIR / item["markdown_stored_name"]).exists()
+            )
             return {
                 "job_id": job_id,
                 "url": item["source_url"],
@@ -250,11 +289,7 @@ async def get_job(job_id: str) -> dict:
                 "percent": 100,
                 "title": item["title"],
                 "message": "PDF listo.",
-                "result": {
-                    **item,
-                    "pdf_url": f"/api/jobs/{job_id}/pdf",
-                    "download_url": f"/api/jobs/{job_id}/pdf?download=1",
-                },
+                "result": {**item, **_result_urls(job_id, has_md)},
             }
     raise HTTPException(status_code=404, detail="Trabajo no encontrado.")
 
@@ -311,47 +346,74 @@ async def job_thumb(job_id: str) -> Response:
     )
 
 
-def _resolve_pdf_for_job(job_id: str) -> tuple[Path, str]:
+def _resolve_file_for_job(job_id: str, kind: str) -> tuple[Path, str]:
     job = JOBS.get(job_id)
-    if job and job.result and job.result.pdf_path.exists():
-        return job.result.pdf_path, job.result.filename
+    if job and job.result:
+        path = job.result.pdf_path if kind == "pdf" else job.result.markdown_path
+        name = job.result.filename if kind == "pdf" else job.result.markdown_filename
+        if path.exists():
+            return path, name
 
     for item in _load_history():
         if item.get("job_id") == job_id:
-            candidate = OUTPUT_DIR / item.get("stored_name", "")
-            if candidate.exists():
-                return candidate, item.get("filename", candidate.name)
+            stored_key = "stored_name" if kind == "pdf" else "markdown_stored_name"
+            name_key = "filename" if kind == "pdf" else "markdown_filename"
+            stored_name = item.get(stored_key, "")
+            if stored_name:
+                candidate = OUTPUT_DIR / stored_name
+                if candidate.exists():
+                    return candidate, item.get(name_key, candidate.name)
 
-    raise HTTPException(status_code=404, detail="Archivo PDF no encontrado.")
+    raise HTTPException(status_code=404, detail="Archivo no encontrado.")
+
+
+def _content_disposition(disposition: str, download_name: str, fallback: str) -> str:
+    ascii_name = download_name.encode("ascii", "ignore").decode("ascii") or fallback
+    encoded_name = quote(download_name)
+    return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
 
 
 @app.get("/api/jobs/{job_id}/pdf")
 async def serve_pdf(job_id: str, download: int = Query(0)) -> FileResponse:
-    pdf_path, download_name = _resolve_pdf_for_job(job_id)
+    pdf_path, download_name = _resolve_file_for_job(job_id, "pdf")
     disposition = "attachment" if download else "inline"
-    ascii_name = download_name.encode("ascii", "ignore").decode("ascii") or "presentacion.pdf"
-    encoded_name = quote(download_name)
     return FileResponse(
         path=pdf_path,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}",
+            "Content-Disposition": _content_disposition(disposition, download_name, "presentacion.pdf"),
             "Cache-Control": "no-store",
         },
     )
 
 
+@app.get("/api/jobs/{job_id}/markdown")
+async def serve_markdown(job_id: str, download: int = Query(0)) -> Response:
+    md_path, download_name = _resolve_file_for_job(job_id, "markdown")
+    text = md_path.read_text(encoding="utf-8")
+    if download:
+        return Response(
+            content=text.encode("utf-8"),
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": _content_disposition("attachment", download_name, "contexto_IA.md"),
+                "Cache-Control": "no-store",
+            },
+        )
+    return PlainTextResponse(content=text, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/history")
 async def get_history() -> list[dict]:
     items = _load_history()
-    return [
-        {
-            **item,
-            "pdf_url": f"/api/jobs/{item['job_id']}/pdf",
-            "download_url": f"/api/jobs/{item['job_id']}/pdf?download=1",
-        }
-        for item in items
-    ]
+    out = []
+    for item in items:
+        has_md = bool(
+            item.get("markdown_stored_name")
+            and (OUTPUT_DIR / item["markdown_stored_name"]).exists()
+        )
+        out.append({**item, **_result_urls(item["job_id"], has_md)})
+    return out
 
 
 @app.delete("/api/history/{job_id}")

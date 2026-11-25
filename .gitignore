@@ -4,5 +4,6 @@ __pycache__/
 *$py.class
 .pytest_cache/
 output/*.pdf
+output/*.md
 output/history.json
 *.log
